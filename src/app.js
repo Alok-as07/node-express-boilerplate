@@ -32,7 +32,6 @@ app.use(express.urlencoded({ extended: true }));
 // sanitize request data
 app.use(xss());
 app.use(mongoSanitize());
-app.use(require('./middlewares/idempotency'));
 
 // gzip compression
 app.use(compression());
@@ -49,6 +48,8 @@ passport.use('jwt', jwtStrategy);
 if (config.env === 'production') {
   app.use('/v1/auth', authLimiter);
 }
+
+app.use(require('./middlewares/idempotency'));
 
 // v1 api routes
 app.use('/v1', routes);
