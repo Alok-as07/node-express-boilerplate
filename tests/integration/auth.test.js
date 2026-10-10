@@ -170,7 +170,7 @@ describe('Auth routes', () => {
       await insertUsers([userOne]);
       const expires = moment().add(config.jwt.refreshExpirationDays, 'days');
       const refreshToken = tokenService.generateToken(userOne._id, expires, tokenTypes.REFRESH);
-      await tokenService.saveToken(refreshToken, userOne._id, expires, tokenTypes.REFRESH);
+      await tokenService.saveToken(refreshToken, userOne._id, expires, tokenTypes.REFRESH, false, 'test-family');
 
       const res = await request(app).post('/v1/auth/refresh-tokens').send({ refreshToken }).expect(httpStatus.OK);
 
@@ -183,7 +183,66 @@ describe('Auth routes', () => {
       expect(dbRefreshTokenDoc).toMatchObject({ type: tokenTypes.REFRESH, user: userOne._id, blacklisted: false });
 
       const dbRefreshTokenCount = await Token.countDocuments();
-      expect(dbRefreshTokenCount).toBe(1);
+      expect(dbRefreshTokenCount).toBe(2);
+      const oldTokenDoc = await Token.findOne({ token: refreshToken });
+      expect(oldTokenDoc).toMatchObject({ family: 'test-family', used: true, blacklisted: true });
+      expect(dbRefreshTokenDoc.family).toBe('test-family');
+    });
+
+    test('should return different refresh tokens for refreshes in the same second', async () => {
+      await insertUsers([userOne]);
+      const expires = moment().add(config.jwt.refreshExpirationDays, 'days');
+      const refreshToken = tokenService.generateToken(userOne._id, expires, tokenTypes.REFRESH);
+      await tokenService.saveToken(refreshToken, userOne._id, expires, tokenTypes.REFRESH, false, 'jti-family');
+
+      const firstResponse = await request(app).post('/v1/auth/refresh-tokens').send({ refreshToken }).expect(httpStatus.OK);
+      const secondResponse = await request(app)
+        .post('/v1/auth/refresh-tokens')
+        .send({ refreshToken: firstResponse.body.refresh.token })
+        .expect(httpStatus.OK);
+
+      expect(secondResponse.body.refresh.token).not.toBe(firstResponse.body.refresh.token);
+    });
+
+    test('reuse revokes every refresh token in the family', async () => {
+      await insertUsers([userOne]);
+      const expires = moment().add(config.jwt.refreshExpirationDays, 'days');
+      const refreshToken = tokenService.generateToken(userOne._id, expires, tokenTypes.REFRESH);
+      await tokenService.saveToken(refreshToken, userOne._id, expires, tokenTypes.REFRESH, false, 'reuse-family');
+      const unrelated = tokenService.generateToken(userOne._id, expires, tokenTypes.REFRESH);
+      await tokenService.saveToken(unrelated, userOne._id, expires, tokenTypes.REFRESH, false, 'other-family');
+      await request(app).post('/v1/auth/refresh-tokens').send({ refreshToken }).expect(httpStatus.OK);
+      await request(app).post('/v1/auth/refresh-tokens').send({ refreshToken }).expect(httpStatus.UNAUTHORIZED);
+      expect(await Token.countDocuments({ family: 'reuse-family', blacklisted: true })).toBe(2);
+      expect(await Token.countDocuments({ family: 'other-family', blacklisted: false })).toBe(1);
+    });
+
+    test('only one of two parallel refreshes succeeds', async () => {
+      await insertUsers([userOne]);
+      const expires = moment().add(config.jwt.refreshExpirationDays, 'days');
+      const refreshToken = tokenService.generateToken(userOne._id, expires, tokenTypes.REFRESH);
+      await tokenService.saveToken(refreshToken, userOne._id, expires, tokenTypes.REFRESH, false, 'parallel-family');
+      const responses = await Promise.all([
+        request(app).post('/v1/auth/refresh-tokens').send({ refreshToken }),
+        request(app).post('/v1/auth/refresh-tokens').send({ refreshToken }),
+      ]);
+      expect(responses.map((response) => response.status).sort()).toEqual([httpStatus.OK, httpStatus.UNAUTHORIZED]);
+      expect(await Token.countDocuments({ family: 'parallel-family', used: true })).toBe(1);
+      expect(await Token.countDocuments({ family: 'parallel-family', blacklisted: false })).toBe(0);
+    });
+
+    test('should leave the refresh token usable if token issuance fails', async () => {
+      await insertUsers([userOne]);
+      const expires = moment().add(config.jwt.refreshExpirationDays, 'days');
+      const refreshToken = tokenService.generateToken(userOne._id, expires, tokenTypes.REFRESH);
+      await tokenService.saveToken(refreshToken, userOne._id, expires, tokenTypes.REFRESH, false, 'retry-family');
+      jest.spyOn(tokenService, 'generateAuthTokens').mockRejectedValueOnce(new Error('issuance failed'));
+
+      await request(app).post('/v1/auth/refresh-tokens').send({ refreshToken }).expect(httpStatus.UNAUTHORIZED);
+
+      const tokenDoc = await Token.findOne({ token: refreshToken });
+      expect(tokenDoc).toMatchObject({ used: false, blacklisted: false });
+      await request(app).post('/v1/auth/refresh-tokens').send({ refreshToken }).expect(httpStatus.OK);
     });
 
     test('should return 400 error if refresh token is missing from request body', async () => {
