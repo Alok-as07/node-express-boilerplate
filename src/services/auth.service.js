@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 const tokenService = require('./token.service');
 const userService = require('./user.service');
-const Token = require('../models/token.model');
+const { Token, RefreshTokenFamily } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { tokenTypes } = require('../config/tokens');
 
@@ -42,11 +42,21 @@ const logout = async (refreshToken) => {
 const refreshAuth = async (refreshToken) => {
   try {
     const payload = jwt.verify(refreshToken, config.jwt.secret);
+    const { family, sub } = payload;
+    if (family && (await RefreshTokenFamily.exists({ family }))) {
+      throw new Error();
+    }
+    const user = await userService.getUserById(sub);
+    if (!user) {
+      throw new Error();
+    }
+
     const refreshTokenDoc = await Token.findOneAndUpdate(
       {
         token: refreshToken,
         type: tokenTypes.REFRESH,
-        user: payload.sub,
+        user: sub,
+        ...(family ? { family } : {}),
         blacklisted: false,
         used: false,
         expires: { $gt: new Date() },
@@ -56,14 +66,31 @@ const refreshAuth = async (refreshToken) => {
     );
     if (!refreshTokenDoc) {
       const spent = await Token.findOne({ token: refreshToken, type: tokenTypes.REFRESH, used: true });
-      if (spent && spent.family) await Token.updateMany({ family: spent.family }, { $set: { blacklisted: true } });
+      if (spent && spent.family) {
+        await RefreshTokenFamily.updateOne(
+          { family: spent.family },
+          { $setOnInsert: { family: spent.family, revokedAt: new Date() } },
+          { upsert: true }
+        );
+        await Token.updateMany({ family: spent.family }, { $set: { blacklisted: true } });
+      }
       throw new Error();
     }
-    const user = await userService.getUserById(refreshTokenDoc.user);
-    if (!user) {
+
+    let tokens;
+    try {
+      tokens = await tokenService.generateAuthTokens(user, refreshTokenDoc.family || family);
+    } catch (error) {
+      await Token.updateOne({ _id: refreshTokenDoc._id }, { $set: { used: false, blacklisted: false } });
+      throw error;
+    }
+
+    if (refreshTokenDoc.family && (await RefreshTokenFamily.exists({ family: refreshTokenDoc.family }))) {
+      await Token.updateMany({ family: refreshTokenDoc.family }, { $set: { blacklisted: true } });
       throw new Error();
     }
-    return tokenService.generateAuthTokens(user, refreshTokenDoc.family || payload.family);
+
+    return tokens;
   } catch (error) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Please authenticate');
   }

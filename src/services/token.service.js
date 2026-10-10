@@ -19,6 +19,7 @@ const { tokenTypes } = require('../config/tokens');
 const generateToken = (userId, expires, type, secret = config.jwt.secret, additionalPayload = {}) => {
   const payload = {
     sub: userId,
+    jti: crypto.randomBytes(8).toString('hex'),
     iat: moment().unix(),
     exp: expires.unix(),
     type,
