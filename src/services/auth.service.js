@@ -1,4 +1,6 @@
 const httpStatus = require('http-status');
+const jwt = require('jsonwebtoken');
+const config = require('../config/config');
 const tokenService = require('./token.service');
 const userService = require('./user.service');
 const Token = require('../models/token.model');
@@ -39,13 +41,29 @@ const logout = async (refreshToken) => {
  */
 const refreshAuth = async (refreshToken) => {
   try {
-    const refreshTokenDoc = await tokenService.verifyToken(refreshToken, tokenTypes.REFRESH);
+    const payload = jwt.verify(refreshToken, config.jwt.secret);
+    const refreshTokenDoc = await Token.findOneAndUpdate(
+      {
+        token: refreshToken,
+        type: tokenTypes.REFRESH,
+        user: payload.sub,
+        blacklisted: false,
+        used: false,
+        expires: { $gt: new Date() },
+      },
+      { $set: { used: true, blacklisted: true } },
+      { new: false }
+    );
+    if (!refreshTokenDoc) {
+      const spent = await Token.findOne({ token: refreshToken, type: tokenTypes.REFRESH, used: true });
+      if (spent && spent.family) await Token.updateMany({ family: spent.family }, { $set: { blacklisted: true } });
+      throw new Error();
+    }
     const user = await userService.getUserById(refreshTokenDoc.user);
     if (!user) {
       throw new Error();
     }
-    await refreshTokenDoc.remove();
-    return tokenService.generateAuthTokens(user);
+    return tokenService.generateAuthTokens(user, refreshTokenDoc.family || payload.family);
   } catch (error) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Please authenticate');
   }

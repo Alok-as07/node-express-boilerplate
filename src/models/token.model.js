@@ -27,6 +27,8 @@ const tokenSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    family: { type: String, index: true },
+    used: { type: Boolean, default: false },
   },
   {
     timestamps: true,
