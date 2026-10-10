@@ -14,8 +14,8 @@ const verifyCallback = (req, resolve, reject, requiredRights) => async (err, use
     const ownsRecord = req.params.userId && req.params.userId === user.id;
     const hasManagePermission = permissions.includes('users:manage');
     const allowed = requiredRights.every((permission) => {
-      if (permissions.includes(permission)) return true;
-      return ownsRecord && permission.endsWith(':self');
+      if (permission.endsWith(':self')) return Boolean(ownsRecord) && permissions.includes(permission);
+      return permissions.includes(permission);
     });
     if (!allowed && !hasManagePermission) {
       return reject(new ApiError(httpStatus.FORBIDDEN, 'Forbidden'));
