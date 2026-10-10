@@ -29,7 +29,6 @@ app.use(express.json());
 
 // parse urlencoded request body
 app.use(express.urlencoded({ extended: true }));
-
 // sanitize request data
 app.use(xss());
 app.use(mongoSanitize());
@@ -49,6 +48,8 @@ passport.use('jwt', jwtStrategy);
 if (config.env === 'production') {
   app.use('/v1/auth', authLimiter);
 }
+
+app.use(require('./middlewares/idempotency'));
 
 // v1 api routes
 app.use('/v1', routes);
