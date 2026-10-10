@@ -29,10 +29,10 @@ app.use(express.json());
 
 // parse urlencoded request body
 app.use(express.urlencoded({ extended: true }));
-
 // sanitize request data
 app.use(xss());
 app.use(mongoSanitize());
+app.use(require('./middlewares/idempotency'));
 
 // gzip compression
 app.use(compression());
