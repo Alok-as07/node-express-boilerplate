@@ -11,7 +11,7 @@ const { tokenService, emailService } = require('../../src/services');
 const ApiError = require('../../src/utils/ApiError');
 const setupTestDB = require('../utils/setupTestDB');
 const { User, Token } = require('../../src/models');
-const { roleRights } = require('../../src/config/roles');
+const { rolePermissions } = require('../../src/config/roles');
 const { tokenTypes } = require('../../src/config/tokens');
 const { userOne, admin, insertUsers } = require('../fixtures/user.fixture');
 const { userOneAccessToken, adminAccessToken } = require('../fixtures/token.fixture');
@@ -553,7 +553,7 @@ describe('Auth middleware', () => {
     const req = httpMocks.createRequest({ headers: { Authorization: `Bearer ${userOneAccessToken}` } });
     const next = jest.fn();
 
-    await auth('anyRight')(req, httpMocks.createResponse(), next);
+    await auth('users:delete')(req, httpMocks.createResponse(), next);
 
     expect(next).toHaveBeenCalledWith(expect.any(ApiError));
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: httpStatus.FORBIDDEN, message: 'Forbidden' }));
@@ -567,7 +567,7 @@ describe('Auth middleware', () => {
     });
     const next = jest.fn();
 
-    await auth('anyRight')(req, httpMocks.createResponse(), next);
+    await auth('users:update:self')(req, httpMocks.createResponse(), next);
 
     expect(next).toHaveBeenCalledWith();
   });
@@ -580,7 +580,7 @@ describe('Auth middleware', () => {
     });
     const next = jest.fn();
 
-    await auth(...roleRights.get('admin'))(req, httpMocks.createResponse(), next);
+    await auth(...rolePermissions.get('admin'))(req, httpMocks.createResponse(), next);
 
     expect(next).toHaveBeenCalledWith();
   });
