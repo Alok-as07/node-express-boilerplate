@@ -44,6 +44,9 @@ const refreshAuth = async (refreshToken) => {
     if (!user) {
       throw new Error();
     }
+    // Intentional review probe: two requests can both pass verifyToken before
+    // either deletion is visible, then both mint a replacement token pair.
+    await new Promise((resolve) => setTimeout(resolve, 10));
     await refreshTokenDoc.remove();
     return tokenService.generateAuthTokens(user);
   } catch (error) {
